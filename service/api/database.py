@@ -1,5 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+from fastapi import FastAPI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,55 +8,60 @@ load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_INITDB_DATABASE = os.getenv("MONGO_INITDB_DATABASE")
 
-client = None
-db = None
 
-
-async def connect_to_db():
-    """Conecta ao MongoDB com validação por ping."""
-    global client, db
-    if not MONGO_URI or not MONGO_INITDB_DATABASE:
-        raise ValueError("As variáveis de ambiente MONGO_URI e MONGO_INITDB_DATABASE devem estar configuradas.")
-
-    if client:
-        print("Já conectado ao MongoDB.")
-        return
-
+async def connect_to_db(app: FastAPI):
+    """Connects to MongoDB and stores it in app.state."""
     try:
-        print("Tentando conectar ao MongoDB...")
+        print("🔄 Attempting to connect to MongoDB...")
+
+        # Ensure attributes exist before accessing them
+        if not hasattr(app.state, "mongo_client"):
+            app.state.mongo_client = None
+        if not hasattr(app.state, "db"):
+            app.state.db = None
+
+        if app.state.mongo_client:
+            print("✅ Already connected to MongoDB.")
+            return
+
         client = AsyncIOMotorClient(MONGO_URI)
-        # Testa a conexão com um ping
+
+        # Ping MongoDB to verify connection
         await client.admin.command("ping")
-        db = client[MONGO_INITDB_DATABASE]
-        print("Conexão com o MongoDB validada e estabelecida.")
+
+        # Store the client and database in app.state
+        app.state.mongo_client = client
+        app.state.db = client[MONGO_INITDB_DATABASE]
+
+        print("✅ Successfully connected to MongoDB.")
+
     except Exception as e:
-        print(f"Erro ao conectar ao MongoDB: {e}")
-        raise
+        print(f"❌ MongoDB connection error: {e}")
+        raise ConnectionError(f"MongoDB connection error: {e}")
 
 
-async def close_db_connection():
-    """Fecha a conexão com o MongoDB."""
-    global client
-    if client:
-        client.close()
-        print("Conexão com o MongoDB encerrada")
-        client = None
-    else:
-        print("Nenhuma conexão com o MongoDB para encerrar.")
+async def close_db_connection(app: FastAPI):
+    """Closes the MongoDB connection when shutting down."""
+    if hasattr(app.state, "mongo_client") and app.state.mongo_client:
+        print("⚠️ Closing MongoDB connection...")
+        app.state.mongo_client.close()
+        app.state.mongo_client = None
+        app.state.db = None
+        print("✅ MongoDB connection closed.")
 
 def parse_obj_id(item):
-    """Converte ObjectId para string no documento."""
+    """Convert MongoDB ObjectId to string and rename `_id` to `id`."""
     if isinstance(item, list):
-        return [{**doc, "_id": str(doc["_id"])} for doc in item]
+        return [{**doc, "id": str(doc.pop("_id"))} for doc in item]  # Rename `_id` to `id`
     elif isinstance(item, dict):
-        item["_id"] = str(item["_id"])
+        item["id"] = str(item.pop("_id"))  # Rename `_id` to `id`
         return item
     return item
    
 # Lifespan gerador assíncrono
-async def lifespan(app):
+async def lifespan(app: FastAPI):
     # Executa na inicialização
-    await connect_to_db()
+    await connect_to_db(app)
     yield  # Permite que a aplicação execute
     # Executa no encerramento
-    await close_db_connection()
+    await close_db_connection(app)

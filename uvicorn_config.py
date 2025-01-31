@@ -9,6 +9,7 @@ template_api = create_api(config_name=config_name)
 
 # Configurações do Uvicorn
 uvicorn_config = {
+    "app": template_api,     # Aplicação
     "host": "0.0.0.0",       # Escutar em todas as interfaces de rede
     "port": 8000,            # Porta padrão
     "workers": 3,            # Número de workers
