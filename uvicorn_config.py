@@ -19,4 +19,4 @@ uvicorn_config = {
 }
 
 if __name__ == "__main__":
-    uvicorn.run(template_api, **uvicorn_config)
+    uvicorn.run(**uvicorn_config)
